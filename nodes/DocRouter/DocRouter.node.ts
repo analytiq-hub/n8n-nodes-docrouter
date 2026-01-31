@@ -52,17 +52,6 @@ export class DocRouter implements INodeType {
 				default: 'upload',
 			},
 			{
-				displayName: 'Organization ID',
-				name: 'organizationId',
-				type: 'string',
-				default: '',
-				required: true,
-				description: 'The DocRouter organization ID to upload documents to',
-				displayOptions: {
-					show: { operation: ['upload'] },
-				},
-			},
-			{
 				displayName: 'Binary Property',
 				name: 'binaryPropertyName',
 				type: 'string',
@@ -117,7 +106,6 @@ export class DocRouter implements INodeType {
 			throw new NodeOperationError(this.getNode(), `Unknown operation: ${operation}`);
 		}
 
-		const organizationId = this.getNodeParameter('organizationId', 0) as string;
 		const binaryPropertyName = this.getNodeParameter('binaryPropertyName', 0) as string;
 		const documentNameParam = this.getNodeParameter('documentName', 0, '') as string;
 		const tagIdsParam = this.getNodeParameter('tagIds', 0, '') as string;
@@ -126,6 +114,28 @@ export class DocRouter implements INodeType {
 		const credentials = await this.getCredentials('docRouterOrgApi');
 		const baseUrl =
 			(credentials?.baseUrl as string)?.trim() || 'https://app.docrouter.ai/fastapi';
+		const apiToken = credentials?.apiToken as string;
+
+		// Get organization ID from the token
+		const tokenInfoResponse = (await this.helpers.httpRequestWithAuthentication.call(
+			this,
+			'docRouterOrgApi',
+			{
+				method: 'GET',
+				baseURL: baseUrl,
+				url: '/v0/account/token/organization',
+				qs: { token: apiToken },
+				json: true,
+			},
+		)) as IDataObject;
+
+		const organizationId = tokenInfoResponse?.organization_id as string;
+		if (!organizationId) {
+			throw new NodeOperationError(
+				this.getNode(),
+				'Could not determine organization ID from token. Make sure you are using an organization-level API token.',
+			);
+		}
 
 		for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
 			try {

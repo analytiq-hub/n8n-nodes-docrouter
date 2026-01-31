@@ -17,7 +17,7 @@ export class DocRouterAccount implements INodeType {
 		subtitle: '={{$parameter["operation"]}}',
 		description: 'Manage account users and organizations in DocRouter.ai',
 		defaults: {
-			name: 'DocRouter Account',
+			name: 'DocRouter',
 		},
 		inputs: [NodeConnectionTypes.Main],
 		outputs: [NodeConnectionTypes.Main],

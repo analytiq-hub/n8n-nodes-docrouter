@@ -554,23 +554,28 @@ export class DocRouterKnowledgeBase implements INodeType {
 							json: true,
 						},
 					);
-					// API may return SSE-style stream even when stream: false; always parse if it looks like stream data
-					const looksLikeStream =
-						typeof chatRaw === 'string' && chatRaw.includes('data: ') ||
-						Buffer.isBuffer(chatRaw) && chatRaw.toString('utf8').includes('data: ') ||
-						Array.isArray(chatRaw) &&
-							(chatRaw.length > 0 &&
+					if (stream) {
+						// Streaming mode: response is SSE or array of events; parse into { text, tool_calls?, tool_results? }
+						const looksLikeStream =
+							(typeof chatRaw === 'string' && chatRaw.includes('data: ')) ||
+							(Buffer.isBuffer(chatRaw) && chatRaw.toString('utf8').includes('data: ')) ||
+							(Array.isArray(chatRaw) &&
+								chatRaw.length > 0 &&
 								((typeof chatRaw[0] === 'string' && (chatRaw[0] as string).includes('data: ')) ||
 									(typeof chatRaw[0] === 'object' && chatRaw[0] != null && ('chunk' in (chatRaw[0] as IDataObject) || 'type' in (chatRaw[0] as IDataObject)))));
-					if (looksLikeStream) {
-						const rawStr =
-							typeof chatRaw === 'string'
-								? chatRaw
-								: Buffer.isBuffer(chatRaw)
-									? chatRaw.toString('utf8')
-									: chatRaw;
-						response = parseChatStreamResponse(rawStr);
+						if (looksLikeStream) {
+							const rawStr =
+								typeof chatRaw === 'string'
+									? chatRaw
+									: Buffer.isBuffer(chatRaw)
+										? chatRaw.toString('utf8')
+										: chatRaw;
+							response = parseChatStreamResponse(rawStr);
+						} else {
+							response = chatRaw as IDataObject;
+						}
 					} else {
+						// Non-streaming mode: API returns a single JSON object { text, tool_calls?, tool_results? }
 						response = chatRaw as IDataObject;
 					}
 				} else if (operation === 'reconcile') {

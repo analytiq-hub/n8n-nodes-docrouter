@@ -367,6 +367,48 @@ export class DocRouterKnowledgeBase implements INodeType {
 			});
 		};
 
+		/** Parse DocRouter KB chat streaming response (SSE-style "data: {...}\n" or array of events) into one object with text and optional tool_calls/tool_results. */
+		const parseChatStreamResponse = (raw: unknown): IDataObject => {
+			const result: IDataObject = { text: '' };
+			const toolCalls: IDataObject[] = [];
+			const toolResults: IDataObject[] = [];
+			let lines: string[] = [];
+			if (typeof raw === 'string') {
+				lines = raw.split('\n').filter((line) => line.startsWith('data: '));
+			} else if (Array.isArray(raw)) {
+				const first = raw[0];
+				if (raw.length === 1 && typeof first === 'string' && first.includes('\n')) {
+					// single string with newlines (full SSE body)
+					lines = first.split('\n').filter((line) => line.startsWith('data: '));
+				} else {
+					for (const item of raw) {
+						if (typeof item === 'string' && item.startsWith('data: ')) lines.push(item);
+						else if (item && typeof item === 'object' && 'type' in (item as IDataObject)) {
+							const ev = item as IDataObject;
+							if (ev.type === 'tool_call') toolCalls.push(ev);
+							else if (ev.type === 'tool_result') toolResults.push(ev);
+							else if (ev.chunk != null) result.text = String(result.text || '') + String(ev.chunk);
+						}
+					}
+				}
+			}
+			for (const line of lines) {
+				try {
+					const jsonStr = line.replace(/^data: /, '').trim();
+					if (!jsonStr) continue;
+					const ev = JSON.parse(jsonStr) as IDataObject;
+					if (ev.type === 'tool_call') toolCalls.push(ev);
+					else if (ev.type === 'tool_result') toolResults.push(ev);
+					else if (ev.chunk != null) result.text = String(result.text || '') + String(ev.chunk);
+				} catch {
+					// skip unparseable lines
+				}
+			}
+			if (toolCalls.length) result.tool_calls = toolCalls;
+			if (toolResults.length) result.tool_results = toolResults;
+			return result;
+		};
+
 		const handleError = (error: unknown, itemIndex: number) => {
 			if (this.continueOnFail()) {
 				returnData.push({
@@ -501,7 +543,7 @@ export class DocRouterKnowledgeBase implements INodeType {
 					if (maxTokens != null) body.max_tokens = maxTokens;
 					if (Object.keys(chatMetadataFilter).length > 0)
 						body.metadata_filter = chatMetadataFilter;
-					response = (await this.helpers.httpRequestWithAuthentication.call(
+					const chatRaw = await this.helpers.httpRequestWithAuthentication.call(
 						this,
 						'docRouterOrgApi',
 						{
@@ -511,7 +553,26 @@ export class DocRouterKnowledgeBase implements INodeType {
 							body,
 							json: true,
 						},
-					)) as IDataObject;
+					);
+					// API may return SSE-style stream even when stream: false; always parse if it looks like stream data
+					const looksLikeStream =
+						typeof chatRaw === 'string' && chatRaw.includes('data: ') ||
+						Buffer.isBuffer(chatRaw) && chatRaw.toString('utf8').includes('data: ') ||
+						Array.isArray(chatRaw) &&
+							(chatRaw.length > 0 &&
+								((typeof chatRaw[0] === 'string' && (chatRaw[0] as string).includes('data: ')) ||
+									(typeof chatRaw[0] === 'object' && chatRaw[0] != null && ('chunk' in (chatRaw[0] as IDataObject) || 'type' in (chatRaw[0] as IDataObject)))));
+					if (looksLikeStream) {
+						const rawStr =
+							typeof chatRaw === 'string'
+								? chatRaw
+								: Buffer.isBuffer(chatRaw)
+									? chatRaw.toString('utf8')
+									: chatRaw;
+						response = parseChatStreamResponse(rawStr);
+					} else {
+						response = chatRaw as IDataObject;
+					}
 				} else if (operation === 'reconcile') {
 					const kbId = this.getNodeParameter('kbId', 0) as string;
 					const dryRun = this.getNodeParameter('dryRun', 0, false) as boolean;

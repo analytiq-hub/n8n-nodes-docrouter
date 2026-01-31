@@ -464,6 +464,12 @@ export class DocRouterDocument implements INodeType {
 					}
 
 					default:
+						if (operation === '__CUSTOM_API_CALL__') {
+							throw new NodeOperationError(
+								this.getNode(),
+								'For custom API calls, use the HTTP Request node and choose "DocRouter Organization API" under Authentication → Predefined Credential Type. This node only supports Upload, List, Get, Update, and Delete.',
+							);
+						}
 						throw new NodeOperationError(this.getNode(), `Unknown operation: ${operation}`);
 				}
 
